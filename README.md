@@ -1,4 +1,4 @@
-# axol-pod opod opod
+# axol-pod
 
 ![Python Version](https://img.shields.io/badge/python-3.9+-blue.svg)
 
