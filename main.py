@@ -1,16 +1,23 @@
 from langchain_community.document_loaders import PyPDFDirectoryLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain.vectorstores.chroma import Chroma
-from langchain.embeddings import HuggingFaceEmbeddings
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from langchain_community.vectorstores import Chroma
+from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.llms import Ollama
-import torch
-from embedding import get_embeddings
 from langchain.schema.document import Document
 
-DATA_PATH = "./knowledgeBase"
-PERSIST_DIRECTORY = "./chroma_db"
+import torch
+from embedding import get_embeddings  # your custom embedding function
+import os
+import threading
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
 
+# --- Paths ---
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_PATH = os.path.join(BASE_DIR, "knowledgeBase")
+PERSIST_DIRECTORY = os.path.join(BASE_DIR, "chroma_db")
+
+# --- Prompt template ---
 PROMPT_TEMPLATE = """
 You are Eve, an intelligent and helpful AI assistant integrated into the Riff AI project.
 
@@ -33,22 +40,36 @@ User Query:
 Eve's Response:
 """
 
-def load_documents():
-    document_loader = PyPDFDirectoryLoader(DATA_PATH)
-    return document_loader.load()
+# --- Global variables ---
+db_lock = threading.Lock()
+db = None  # global Chroma DB reference
 
-#chunkifies the document :)
+# --- Functions ---
+
+def load_documents():
+    if not os.path.exists(DATA_PATH):
+        print(f"ERROR: {DATA_PATH} does not exist. Please add PDFs to load.", flush=True)
+        return []
+
+    document_loader = PyPDFDirectoryLoader(DATA_PATH)
+    documents = document_loader.load()
+    print(f"Loaded {len(documents)} documents.", flush=True)
+    return documents
+
 def split_documents(documents: list[Document]):
+    if not documents:
+        print("No documents to split.", flush=True)
+        return []
+
     text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size = 800,
-        chunk_overlap = 80,
+        chunk_size=800,
+        chunk_overlap=80,
         length_function=len,
         is_separator_regex=False,
     )
-    return text_splitter.split_documents(documents)
-
-documents = load_documents()
-chunks = split_documents(documents)
+    chunks = text_splitter.split_documents(documents)
+    print(f"Split into {len(chunks)} chunks.", flush=True)
+    return chunks
 
 def assign_chunk_ids(chunks: list[Document]):
     last_source = None
@@ -67,42 +88,98 @@ def assign_chunk_ids(chunks: list[Document]):
     return chunks
 
 def build_vectorstore(chunks: list[Document]):
+    if not chunks:
+        print("No chunks available to build vectorstore.", flush=True)
+        return None
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"Using device: {device}", flush=True)
+
     embedding_function = HuggingFaceEmbeddings(
         model_name="intfloat/e5-small-v2",
-        model_kwargs={"device": "cuda"},   
+        model_kwargs={"device": device},
         encode_kwargs={"normalize_embeddings": True}
     )
-    db = Chroma.from_documents(
+
+    db_instance = Chroma.from_documents(
         documents=chunks,
         embedding=embedding_function,
         persist_directory=PERSIST_DIRECTORY
     )
-    db.persist()
-    return db
+    db_instance.persist()
+    print(f"Vectorstore persisted at {PERSIST_DIRECTORY}", flush=True)
+    return db_instance
 
+def rebuild_db():
+    """Reload documents and rebuild the vectorstore"""
+    global db
+    with db_lock:
+        print("\n[Watcher] Rebuilding vectorstore...", flush=True)
+        documents = load_documents()
+        chunks = split_documents(documents)
+        chunks = assign_chunk_ids(chunks)
+        db = build_vectorstore(chunks)
+        if db:
+            print("[Watcher] Vectorstore rebuilt successfully.\n", flush=True)
+        else:
+            print("[Watcher] Failed to rebuild vectorstore.\n", flush=True)
+
+# --- Watchdog handler ---
+class KnowledgeBaseHandler(FileSystemEventHandler):
+    def __init__(self, rebuild_callback):
+        self.rebuild_callback = rebuild_callback
+
+    def on_any_event(self, event):
+        if event.is_directory:
+            return
+        if event.src_path.endswith(".pdf"):
+            print(f"[Watcher] Change detected in knowledgeBase: {event.src_path}", flush=True)
+            self.rebuild_callback()
+
+def watch_knowledge_base(callback):
+    event_handler = KnowledgeBaseHandler(callback)
+    observer = Observer()
+    observer.schedule(event_handler, path=DATA_PATH, recursive=False)
+    observer.start()
+    return observer
+
+# --- Main loop ---
 def main():
-    documents = load_documents()
-    chunks = split_documents(documents)
-    chunks = assign_chunk_ids(chunks)
-    
-    print("Building vector store...")
-    db = build_vectorstore(chunks)
+    global db
+    rebuild_db()  # Initial build
+
+    # Start knowledgeBase watcher
+    observer = watch_knowledge_base(rebuild_db)
 
     llm = Ollama(model="llama3")
+    print("Eve is ready! Type your question or 'exit' to quit.", flush=True)
 
-    print("RAG-ready DB created and persisted.\n")
-    while True:
-        query = input("Ask Eve a question (or type 'exit' to quit): ")
-        if query.lower() == "exit":
-            break
-        relevant_docs = db.similarity_search(query, k=4)
-        context = "\n---\n".join([doc.page_content for doc in relevant_docs])
-        final_prompt = PROMPT_TEMPLATE.format(context=context, question=query)
-        # Here you'd pass the prompt to your LLM for generation (e.g. Mistral, LLaMA, etc.)
+    try:
+        while True:
+            try:
+                query = input()
+                if query.lower() == "exit":
+                    break
 
-        response = llm.invoke(final_prompt)
-        print("Eve's Response:\n", response)
-        print("\n" + "=" * 40 + "\n")
+                with db_lock:
+                    if db is None:
+                        print("Vectorstore not ready yet. Please wait...", flush=True)
+                        continue
+                    relevant_docs = db.similarity_search(query, k=4)
 
+                context = "\n---\n".join([doc.page_content for doc in relevant_docs])
+                final_prompt = PROMPT_TEMPLATE.format(context=context, question=query)
+                response = llm.invoke(final_prompt)
+                print(response, flush=True)
+
+            except EOFError:
+                break
+            except Exception as e:
+                print(f"Error: {e}", flush=True)
+    finally:
+        observer.stop()
+        observer.join()
+
+# --- Entry point ---
 if __name__ == "__main__":
     main()
