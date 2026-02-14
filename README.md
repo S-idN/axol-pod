@@ -23,6 +23,7 @@ It lets you chat with an LLM, index your local documents, and interact with your
 - **Ollama** — to run local LLMs such as **Llama 3** (configurable)
 
 ---
+![Screenshot](AxolSS.png)
 
 ## Requirements
 
