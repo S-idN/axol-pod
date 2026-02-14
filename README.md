@@ -1,21 +1,21 @@
-# 🧠 Axol-Pod
+# Axol-Pod
 
 **Axol-Pod** is a privacy-focused local AI assistant desktop app built using **Electron Forge**, **Vite**, and **TypeScript**.  
 It lets you chat with an LLM, index your local documents, and interact with your knowledge base — all **offline**, ensuring **complete data privacy**.
 
 ---
 
-## 🚀 Features
+##  Features
 
-- 💬 **Chat locally** with an LLM (no API calls or data sharing)
-- 📂 **Add PDFs and text files** to build your local knowledge base
-- 🧩 **Modular architecture** for easy extension (e.g., custom models, new tools)
-- 🔒 **100% offline** — data never leaves your machine
-- ⚙️ **Cross-platform** — runs on Windows, macOS, and Linux
+-  **Chat locally** with an LLM (no API calls or data sharing)
+-  **Add PDFs and text files** to build your local knowledge base
+-  **Modular architecture** for easy extension (e.g., custom models, new tools)
+-  **100% offline** — data never leaves your machine
+-  **Cross-platform** — runs on Windows, macOS, and Linux
 
 ---
 
-## 🧰 Tech Stack
+##  Tech Stack
 
 - **Electron Forge** — for packaging and desktop app support  
 - **Vite + TypeScript** — for fast, modular frontend builds  
@@ -24,7 +24,7 @@ It lets you chat with an LLM, index your local documents, and interact with your
 
 ---
 
-## ⚙️ Requirements
+## Requirements
 
 Before running Axol-Pod, make sure you have:
 
@@ -63,14 +63,6 @@ Run the app in development mode:
 npm run start
 ```
 ---
-
-## 🧪 Future Roadmap
-
-* 🧠 Integrate a custom fine-tuned model for domain-specific tasks
-* 🎙️ Include voice input and output features
----
-
-## 🩵 Contributing
 
 Contributions, ideas, and feedback are always welcome!
 Feel free to open an issue or submit a pull request.
